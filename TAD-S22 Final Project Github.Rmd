@@ -1,0 +1,1141 @@
+---
+title: "Congressional Sentiment and 'Mentioning' Behavior on Twitter"
+author: "Gary Hull"
+date: "5/31/22"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Brief substantive background / goal
+
+For this project, I am interested in analyzing how Congress members use Twitter 
+to talk about partisan allies and opponents. In a period of hyperpartisanship,
+it is largely assumed that most rhetoric will be more positive towards copartisans
+and negative towards the opposing party. I endeavor to test this assumption, and
+see if it holds true for party leadership and popular rank-and-file members alike.
+Who is speaking the most negatively/positively about opposing/co-partisans? I
+will also explore more specifics about how others are mentioned on the platform.
+Are Congress members mentioning their own party more, or the opposing party? How
+often do they mention opposing members by name and who is being mentioned most often?
+Answering these questions should provide significant insight into Congressional
+behavior on this social media platform, which is today increasingly important
+to study as more of the public joins social media and Congress uses it as a tool
+to engage with each other and send cues to voters.
+
+## Collecting data
+
+I collected each of the 500 most recent tweets of 22 Congressional Twitter
+accounts in the 117th Congress. This cohort is split evenly between Democrats
+and Republicans, and the accounts are chosen either for their status as the most
+highly followed accounts of their respective party or for their role in top party
+leadership (Senate/House Majority/Minority leaders and whips). Leadership members 
+include Chuck Schumer, Dick Durbin, Mitch McConnell, John Thune, Steny Hoyer, 
+James Clyburn, Kevin McCarthy, Steve Scalise, and Nancy Pelosi (who is also a
+highly followed member). Members selected based on their following includes 
+Senators Bernie Sanders, Elizabeth Warren, Cory Booker, Ted Cruz, Marco Rubio, 
+Rand Paul, Mitt Romney, and Lindsey Graham, as well as Representatives Alexandria 
+Ocasio-Cortez, Ilhan Omar, and Dan Crenshaw. I have also added two 'wild cards'
+in Rep Lauren Boebert, who is also highly followed and perceived as particularly
+conservative and outspoken, as well as Sen Joe Manchin, a moderate Democrat who
+has received much attention for his powerful position as a sort of swing vote in 
+the Senate.
+
+I used the `rtweet` package to collect the tweets, and have saved csv files for
+future reproducibility with the same data. Also, while many of these members have
+more than one Twitter account, I have used only their most-followed account for
+this project since those tend to be more actively used, and using both accounts
+would likely create a large amount of redundancy as sharing tweets from alternate
+accounts on the main account is very common. Lastly, among the most significant
+decisions is choosing whether to include retweets or filter for only tweets
+published originally by the selected account. Arguments could be made for either
+approach, but here I chose to include them as my goal involves behavior and
+messaging in general, and retweets appear on Twitter timelines just as original
+tweets do and thus deserve to be accounted for in their overall messaging.
+
+
+```{r load packages, message = FALSE}
+library(rtweet)
+library(tidyverse)
+library(tidytext)
+library(jsonlite)
+library(quanteda)
+```
+
+```{r import tweets, eval = FALSE}
+# Tweets pulled at 2:40pm UCT on 5/23/22
+dems <- get_timelines(
+  user = c("BernieSanders", "SenWarren", "AOC", "IlhanMN", "CoryBooker",
+           "SenatorDurbin", "SenSchumer", "LeaderHoyer", "WhipClyburn", 
+           "SpeakerPelosi", "Sen_JoeManchin"),
+  n = 500,
+  max_id = 1528814173932634113
+)
+
+# Tweets pulled at 2:57pm UCT on 5/23/22
+reps <- get_timelines(
+  user = c("tedcruz", "marcorubio", "RandPaul", "MittRomney", "LindseyGrahamSC",
+           "GOPLeader", "SteveScalise", "LeaderMcConnell", "SenJohnThune", 
+           "DanCrenshawTX", "laurenboebert"),
+  n = 500,
+  max_id = 1528826974386397185
+)
+```
+
+```{r export data, eval = FALSE, echo = FALSE}
+# Saving for reproducibility
+save.image("twitter_data.RData")
+```
+
+```{r load data, echo = FALSE}
+load("twitter_data.RData")
+```
+
+## Cleaning / pre-processing data
+
+Since this project is largely interested in the difference in behaviors between
+and within parties, I split the data by party and processed each of these groups
+separately but with identical steps. This included removing punctuation and 
+numbers, converting to lowercase, and removing stop words. After performing a 
+sentiment analysis, I also noticed a few popular words that likely were added 
+erroneously, referring in the tweets to different things than the sentiment 
+dictionary interpreted them as (including 'trump', 'supreme', and 'reconciliation'). 
+In one approach, I tokenized the texts and created a document-term-matrix for each. 
+In instances where I needed to keep the screen names attached to each tweet, I 
+took a similar approach but created data frames that kept the screen_names.
+
+I repeat these steps further down when necessary as the data is filtered
+differently to analyze different questions (using `grep` and `str_extract_all`).
+To examine general mentions of the parties, I filtered to include only tweets 
+where the words 'republican' or 'democrat' were used. For direct mentions, I 
+filtered for tweets that directly state one of the names of the members in this 
+cohort (or the name they are known by). Each time I filter the original data this 
+way, I repeat the processing steps mentioned above. Thus, while a large amount of
+code is used here, it is largely repetitive as I redo the same processes four
+times for many parts (D's mentioning R's, D's mentioning D's, R's mentioning D's, 
+R's mentioning R's).
+
+```{r pre-processing}
+dem_twit <- dems %>%
+  unnest_longer(hashtags) %>%
+  select(c(screen_name, created_at, favorite_count, retweet_count, is_quote, 
+           is_retweet, hashtags, text, mentions_screen_name))
+
+# Store data as a csv
+write_as_csv(dem_twit, "dem_twit.csv")
+
+
+rep_twit <- reps %>%
+  unnest_longer(hashtags) %>%
+  select(c(screen_name, created_at, favorite_count, retweet_count, is_quote, 
+           is_retweet, hashtags, text, mentions_screen_name))
+
+write_as_csv(rep_twit, "rep_twit.csv")
+
+# Data frame with both parties
+cong_twit <- dem_twit %>%
+  bind_rows(rep_twit)
+
+
+dem_ment <- dem_twit %>%
+  filter()
+```
+
+```{r tokenize and dfm}
+# Select text, tokenize, and convert to dfm for Dems
+dem_twit2 <- dems %>%
+  select(text)
+
+dem_toks <- as.character(dem_twit2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "reconciliation") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "trump")
+# Reconciliation, supreme, and trump all appeared popularly here, likely
+# inappropriately in most cases (legislative reconciliation, supreme court, and
+# Donald Trump). I chose to exclude them here, but there are likely more instances
+# of this problem that appear less.
+
+dem_dfm <- dfm(dem_toks)
+
+# Repeat for Republicans
+rep_twit2 <- reps %>%
+  select(text)
+
+rep_toks <- as.character(rep_twit2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "trump") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "reconciliation")
+
+rep_dfm <- dfm(rep_toks)
+```
+
+```{r data frame with screen names}
+# Create data frame that also keeps the screen names attached (unlike the dfm)
+# I took a similar approach as 
+# [this code](http://varianceexplained.org/r/trump-tweets/).
+dem_words <- dems %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+
+rep_words <- reps %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+```
+
+## Analysis and visualization
+
+To establish a baseline, I first took all the processed tweets, separated by 
+party, and merged the text with a sentiment dictionary. I visualized the findings
+as pie charts, depicting a Democratic party that uses somewhat more positive
+language in their tweets, and a Republican party that is nearly evenly split,
+leaning very slightly negative.
+
+I follow this by looking more specifically at the overall language by each 
+individual member. On the Democrat side, only three members use more negative
+than positive language, all of whom are labelled as more 'progressive' members.
+The Democratic members using the most positive language include leaders like 
+Hoyer, Clyburn, and Pelosi, as well as moderate Joe Manchin. On the Republican
+side, those using the most negative language includes a mix of rank-and-file and
+leadership such as Rubio, Scalise, Crenshaw, and McCarthy. Mitt Romney, a moderate
+Republican, is the only member of his party to use more positive than negative
+language, and is followed by Senate minority whip John Thune who is almost evenly
+split.
+
+```{r}
+# create sentiment dictionary
+sent <- get_sentiments("bing")
+sent_dict <- as.dictionary(sent)
+
+# find frequencies of pos/neg words
+dems_sent <- dfm_lookup(dem_dfm, dictionary = sent_dict)
+dems_sent
+
+# convert to proportions
+dems_sent_prop <- dfm_weight(dems_sent, scheme = "prop")
+dems_sent_prop
+
+# visualize as pie chart
+slices <- c(0.3573057, 0.64269432)
+labels <- c("Negative", "Positive")
+pct <- round(slices/sum(slices)*100)
+labels <- paste(labels, pct)
+labels <- paste(labels,"%",sep="")
+pie(slices,labels = labels, col= c("red", "forestgreen"),
+    main="Democrats Overall Tweet Sentiment")
+
+# repeat process for Republicans
+reps_sent <- dfm_lookup(rep_dfm, dictionary = sent_dict)
+reps_sent
+
+# convert to proportions
+reps_sent_prop <- dfm_weight(reps_sent, scheme = "prop")
+reps_sent_prop
+
+# visualize as pie chart
+slices2 <- c(0.5275318, 0.4724682)
+labels2 <- c("Negative", "Positive")
+pct2 <- round(slices2/sum(slices2)*100)
+labels2 <- paste(labels2, pct2)
+labels2 <- paste(labels2,"%",sep="")
+pie(slices2,labels = labels2, col= c("red", "forestgreen"),
+    main="Republicans Overall Tweet Sentiment")
+```
+
+```{r, message = FALSE}
+# Attach sentiment dictionary
+dem_sent <- dem_words %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+# Group by screen name and sentiment, count most common words. Fix names for graph
+dem_sent_indiv <- dem_sent %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin"))
+
+# sum both pos and neg sentiment words for each person
+# sum those totals, then calculate proportions
+dem_sent_prop <- dem_sent_indiv %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+# Reorder by descending negative proportions, visualize as bar chart
+dem_sent_prop %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Democrat Sentiment in the Top Congressional Twitter Accounts",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Repeat the process above for Republicans
+rep_sent <- rep_words %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+rep_sent_indiv <- rep_sent %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert"))
+
+rep_sent_prop <- rep_sent_indiv %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+rep_sent_prop %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Republican Sentiment in the Top Congressional Twitter Accounts",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+After establishing this baseline, I now focus only on subsets of the overall
+data. To start, I filtered for tweets that mentioned parties generally. This
+means that either the word 'republican(s)' or 'democrat(s)' were used in the
+tweet. I then examined the sentiment of these tweets based on the language used
+by all the members of each party. For Democrats, they used more positive language
+when mentioning their own party (slightly more so than their baseline), and used
+slightly more negative than positive language when mentioning Republicans-
+representing a 24 percentage point difference (69%/31% vs 45%/55%). Republicans
+mentioning their own party were again evenly split in their language sentiment,
+but used a majority of negative language when mentioning Democrats. Their gap
+is slightly smaller than Democrats at a 16 percentage point difference.
+
+```{r general mentions sentiment party}
+# filter for tweets that mention republicans
+dem_rep_men <- grep("republican", dem_twit$text, ignore.case = T)
+dem_rep_men2 <- dem_twit[dem_rep_men,] %>%
+  select(text)
+
+# Tokenize
+dem_rep_toks <- as.character(dem_rep_men2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "trump") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "reconciliation")
+
+# Create dfm
+dem_rep_dfm <- dem_rep_toks %>%
+  dfm()
+
+# Check sentiment of words
+dem_rep_sent <- dfm_lookup(dem_rep_dfm, dictionary = sent_dict)
+
+# Calculate proportions
+dem_rep_prop <- dfm_weight(dem_rep_sent, scheme = "prop")
+dem_rep_prop
+
+# visualize as pie chart
+slices3 <- c(0.5495652, 0.4504348)
+labels3 <- c("Negative", "Positive")
+pct3 <- round(slices3/sum(slices3)*100)
+labels3 <- paste(labels3, pct3)
+labels3 <- paste(labels3,"%",sep="")
+pie(slices3,labels = labels3, col= c("red", "forestgreen"),
+    main= "Democrats Sentiment Mentioning Republicans")
+
+# filter dem tweets for mentions of democrats
+dem_dem_men <- grep("democrat", dem_twit$text, ignore.case = T)
+dem_dem_men2 <- dem_twit[dem_dem_men,] %>%
+  select(text)
+
+# Tokenize
+dem_dem_toks <- as.character(dem_dem_men2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "trump") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "reconciliation")
+
+# Create dfm
+dem_dem_dfm <- dem_dem_toks %>%
+  dfm()
+
+dem_dem_sent <- dfm_lookup(dem_dem_dfm, dictionary = sent_dict)
+
+# Calculate proportions
+dem_dem_prop <- dfm_weight(dem_dem_sent, scheme = "prop")
+dem_dem_prop
+
+# visualize as pie chart
+slices4 <- c(0.3092593, 0.6907407)
+labels4 <- c("Negative", "Positive")
+pct4 <- round(slices4/sum(slices4)*100)
+labels4 <- paste(labels4, pct4)
+labels4 <- paste(labels4,"%",sep="")
+pie(slices4,labels = labels4, col= c("red", "forestgreen"),
+    main= "Democrats Sentiment Mentioning Democrats")
+
+
+# Repeat the above process for Republicans
+rep_dem_men <- grep("democrat", rep_twit$text, ignore.case = T)
+rep_dem_men2 <- rep_twit[rep_dem_men,] %>%
+  select(text)
+
+rep_dem_toks <- as.character(rep_dem_men2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "trump") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "reconciliation")
+
+rep_dem_dfm <- rep_dem_toks %>% 
+  dfm()
+
+rep_dem_sent <- dfm_lookup(rep_dem_dfm, dictionary = sent_dict)
+
+rep_dem_prop <- dfm_weight(rep_dem_sent, scheme = "prop")
+rep_dem_prop
+
+slices5 <- c(0.6734694, 0.3265306)
+labels5 <- c("Negative", "Positive")
+pct5 <- round(slices5/sum(slices5)*100)
+labels5 <- paste(labels5, pct5)
+labels5 <- paste(labels5,"%",sep="")
+pie(slices5,labels = labels5, col= c("red", "forestgreen"),
+    main="Republicans Sentiment Mentioning Democrats")
+
+# Reps mentioning Reps
+rep_rep_men <- grep("republican", rep_twit$text, ignore.case = T)
+rep_rep_men2 <- rep_twit[rep_rep_men,] %>%
+  select(text)
+
+rep_rep_toks <- as.character(rep_rep_men2) %>%
+  tokens(split_hyphens = F,
+         remove_punct = TRUE,
+         remove_numbers = TRUE) %>%
+  tokens_tolower() %>% 
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_remove(pattern = "trump") %>%
+  tokens_remove(pattern = "supreme") %>%
+  tokens_remove(pattern = "reconciliation")
+
+rep_rep_dfm <- rep_rep_toks %>% 
+  dfm()
+
+rep_rep_sent <- dfm_lookup(rep_rep_dfm, dictionary = sent_dict)
+
+rep_rep_prop <- dfm_weight(rep_rep_sent, scheme = "prop")
+rep_rep_prop
+
+slices6 <- c(0.5117057, 0.4882943)
+labels6 <- c("Negative", "Positive")
+pct6 <- round(slices6/sum(slices6)*100)
+labels6 <- paste(labels6, pct6)
+labels6 <- paste(labels6,"%",sep="")
+pie(slices6,labels = labels6, col= c("red", "forestgreen"),
+    main="Republicans Sentiment Mentioning Republicans")
+```
+
+Looking at the raw count of mentions alone can also be useful in revealing how
+parties are using social media- either to focus on their own party and perhaps
+'credit claim' or to disparage and discredit their political opponents. Here, we
+can observe the Democratic party mentioning their own party far more than they
+broadly mention Republicans (429 mentions of Democrats vs 209 mentions of
+Republicans by the Democrats). The opposite is true of Republicans, who mention
+Democrats nearly three times as often as they mention Republicans (754 D mentions
+vs 255 R mentions). This may be somewhat expected, as the Democrats currently have
+a stronger position in government and likely focus their efforts on advancing
+their policy agenda and credit claiming to the public. This may be supported by
+the Democrat leadership doing the overwhelming majority of mentioning Democrats
+while mentioning Republicans is more mixed. We also see Democrat leadership (along
+with Cory Booker) speaking most positively when mentioning Democrats while more
+progressive members like Ocasio-Cortez and Warren are more negative or evenly split.
+When mentioning Republicans, most Democrat leaders use more negative language.
+Ocasio-Cortez and Omar use the most negative language while mentioning Republicans,
+while Hoyer and Booker are evenly split. Interestingly, moderate Joe Manchin is 
+the only Democrat to never mention Republicans and mentions Democrats only three 
+times, in which he used evenly positive and negative language.
+
+Meanwhile, Republicans are more likely to focus their efforts on discrediting and 
+holding accountable the majority party. The Republican leaders, particularly 
+McConnell, mention Democrats the most and are highly negative (although all of 
+the Republican members use mostly negative language when mentioning Democrats).
+Republican leadership also makes up most of the Republican mentioning as well, and
+while they use more positive language when discussing Democrats, their rhetoric
+is still majority negative. Rand Paul and Mitt Romney are the only Republicans
+to use more positive than negative language when mentioning their own party, and
+were also the two to use the least negative language when mentioning Democrats.
+Boebert, Scalise, and Crenshaw use the most negative language when mentioning
+Republicans, but this is likely more indicative of their rhetoric and topics of
+focus being more negative in general than a suggestion that they speak poorly of
+their own party.
+
+```{r general mentions individual, message=F}
+# Filter for mentions of republicans
+dem_rep_men <- grep("republican", dem_twit$text, ignore.case = T)
+dem_rep_men3 <- dem_twit[dem_rep_men,] %>%
+  select(text, screen_name)
+# 209 observations
+
+# Count number of tweets, visualize as bar chart
+dem_rep_men3 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "blue") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Tweets",
+       title = "Democrat Congressmembers' Mentions of Republicans in General on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Tokenize words
+dem_words2 <- dem_rep_men3 %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+
+# Join with sentiment dictionary
+dem_sent2 <- dem_words2 %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+# Group by screen name and sentiment, count most common words. Fix names for graph
+dem_sent_indiv2 <- dem_sent2 %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin"))
+
+# sum both pos and neg sentiment words for each person
+# sum those totals, then calculate proportions
+dem_sent_prop2 <- dem_sent_indiv2 %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+# Visualize proportions, reorder
+dem_sent_prop2 %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Democrat Congressmembers' Sentiment Mentioning Republicans on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Repeat above process for Dem mentions of Dems
+dem_dem_men <- grep("democrat", dem_twit$text, ignore.case = T)
+dem_dem_men3 <- dem_twit[dem_dem_men,] %>%
+  select(text, screen_name)
+# 429 observations
+
+dem_dem_men3 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "blue") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Tweets",
+       title = "Democrat Congressmembers' Mentions of Democrats in General on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+dem_words3 <- dem_dem_men3 %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+
+# Join with sentiment dictionary
+dem_sent3 <- dem_words3 %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+# Group by screen name and sentiment, count most common words. Fix names for graph
+dem_sent_indiv3 <- dem_sent3 %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin"))
+
+# sum both pos and neg sentiment words for each person
+# sum those totals, then calculate proportions
+dem_sent_prop3 <- dem_sent_indiv3 %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+# Visualize proportions, reorder
+dem_sent_prop3 %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Democrat Congressmembers' Sentiment Mentioning Democrats on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Suppress summarise message
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r}
+# Repeat above process for Republicans
+rep_dem_men <- grep("democrat", rep_twit$text, ignore.case = T)
+rep_dem_men3 <- rep_twit[rep_dem_men,] %>%
+  select(text, screen_name)
+# 754 observations
+
+rep_dem_men3 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "red") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Tweets",
+       title = "Republican Congressmembers' Mentions of Democrats in General on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+rep_words2 <- rep_dem_men3 %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+
+rep_sent2 <- rep_words2 %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+rep_sent_indiv2 <- rep_sent2 %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert"))
+
+rep_sent_prop2 <- rep_sent_indiv2 %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+rep_sent_prop2 %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Republican Congressmembers' Sentiment Mentioning Democrats on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Reps mentioning Reps now
+rep_rep_men <- grep("republican", rep_twit$text, ignore.case = T)
+rep_rep_men3 <- rep_twit[rep_rep_men,] %>%
+  select(text, screen_name)
+# 255 observations
+
+rep_rep_men3 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "red") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Tweets",
+       title = "Republican Congressmembers' Mentions of Republicans in General on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+rep_words3 <- rep_rep_men3 %>%
+  select(text, screen_name) %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]")) %>%
+  filter(word != "reconciliation") %>%
+  filter(word != "supreme") %>%
+  filter(word != "trump")
+
+rep_sent3 <- rep_words3 %>%
+  inner_join(get_sentiments("bing"), by = "word")
+
+rep_sent_indiv3 <- rep_sent3 %>%
+  group_by(screen_name, sentiment) %>%
+  count(word) %>% 
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert"))
+
+rep_sent_prop3 <- rep_sent_indiv3 %>%
+  group_by(screen_name, sentiment) %>%
+  summarise(sentiment_total = sum(n)) %>%
+  ungroup() %>%
+  group_by(screen_name) %>%
+  mutate(true_total = sum(sentiment_total)) %>%
+  ungroup() %>%
+  mutate(percent = sentiment_total / true_total * 100)
+
+rep_sent_prop3 %>%
+  ungroup() %>% 
+  mutate(negative = fct_relevel(sentiment, "negative")) %>% 
+  arrange(negative, percent) %>% 
+  mutate(screen_name = fct_inorder(screen_name)) %>% 
+  ggplot(aes(x = screen_name, y = percent, fill = negative)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Percent of Positive/Negative Words",
+       title = "Republican Congressmembers' Sentiment Mentioning Republicans on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers",
+       fill = "Sentiment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+Finally, isolating direct mentions can also provide some significant insights,
+filtering for tweets where members of this select group mention other members of
+the cohort. First, we again see Republicans mentioning Democrats by name more 
+than Democrats mention Republicans by name (158 vs 53). While some Democrat
+leaders led in general mentions of Republicans, they generally engage less in
+direct naming here. Conversely, Republican leadership (specifically McConnell and
+Scalise) lead their party in general mentions of Democrats and direct mentions.
+Ocasio-Cortez, Durbin, and Omar lead the Democrats in this behavior.
+
+Who is directly mentioned most often in the opposing party's tweets is a mix, but
+favors party leaders, as McCarthy and McConnell are the most mentioned Republicans
+in Democrat tweets, and Pelosi (by far) and Schumer are the most mentioned
+Democrats in Republican tweets.
+
+I have also included graphs of behavior where Democrats/Republicans directly 
+mention themselves or copartisans. Most of these mentions are self-mentions,
+likely retweeting an account (such as a news organization) that tags them.
+This highlights the self-promotion and credit-claiming previously mentioned, as
+both parties heavily engage in this behavior (692 instances among D's, 793 among
+R's).
+
+```{r direct mentions, warning = F}
+# Compile republican names to check for mentions
+# Most names were unique enough to check for their last names, except Rand Paul
+# For paul, I used his screen name to minimize erroneous additions
+# In turn, this approach may miss some mentions where he is only referred to as
+# "Senator Paul" for example
+rep_names <- c("Graham|Rubio|Romney|RandPaul|Cruz|McCarthy|Scalise|McConnell|Thune|Crenshaw|Boebert")
+
+# Filter for mentions of these Republicans in Dem tweets
+dem_direct_men <- grep(pattern = rep_names, dem_twit$text, ignore.case = T)
+dem_direct_men2 <- dem_twit[dem_direct_men,] %>%
+  select(text, screen_name)
+# 53 total observations
+
+# Count number of mentions, visualize as bar chart
+dem_direct_men2 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "blue") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Mentions",
+       title = "Democrat Congressmembers Mentioning Republicans by Name on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Look at who Dems are mentioning; extract names, count them
+rep_mentd <- dem_twit[dem_direct_men,] %>%
+  select(text) %>%
+  str_extract_all(pattern = rep_names) %>%
+  as.data.frame()
+colnames(rep_mentd)[1] <- "mention"
+
+# Visualize as bar chart
+rep_mentd %>%
+  count(mention) %>%
+  mutate(mention = recode(mention, RandPaul = "Paul")) %>%
+  ggplot(aes(x = reorder(mention, -n), y = n)) +
+  geom_col(fill = "red") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Times Mentioned",
+       title = "Republicans Mentioned by Democrat Congressmembers on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Check for Dems mentioning Dems
+# Changed some names for names commonly used
+dem_names <- c("AOC|Ocasio-Cortez|Warren|Bernie|Ilhan|Schumer|Durbin|Pelosi|Hoyer|Booker|Manchin|Clyburn")
+
+dem_direct_men_dem <- grep(pattern = dem_names, dem_twit$text, ignore.case = T)
+dem_direct_men_dem2 <- dem_twit[dem_direct_men_dem,] %>%
+  select(text, screen_name)
+# 692 obs
+
+dem_direct_men_dem2 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, AOC = "Ocasio-Cortez",
+                              BernieSanders = "Sanders",
+                              CoryBooker = "Booker",
+                              SenWarren = "Warren",
+                              SpeakerPelosi = "Pelosi", 
+                              IlhanMN = "Omar", 
+                              SenatorDurbin = "Durbin",
+                              SenSchumer = "Schumer",
+                              LeaderHoyer = "Hoyer",
+                              WhipClyburn = "Clyburn",
+                              Sen_JoeManchin = "Manchin")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "blue") +
+  theme_minimal() +
+  coord_flip() +
+  labs(x = NULL, 
+       y = "Number of Mentions",
+       title = "Democrat Congressmembers Mentioning Democrats by Name on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Democrat Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+```{r, warning = F}
+# Same process as above again for Reps
+dem_names <- c("AOC|Ocasio-Cortez|Warren|Bernie|Ilhan|Schumer|Durbin|Pelosi|Hoyer|Booker|Manchin|Clyburn")
+
+rep_direct_men <- grep(pattern = dem_names, rep_twit$text, ignore.case = T)
+rep_direct_men2 <- rep_twit[rep_direct_men,] %>%
+  select(text, screen_name)
+# 158 total observations
+
+rep_direct_men2 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "red") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Mentions",
+       title = "Republican Congressmembers Mentioning Democrats by Name on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+dem_mentd <- rep_twit[rep_direct_men,] %>%
+  select(text) %>%
+  str_extract_all(pattern = dem_names) %>%
+  as.data.frame()
+colnames(dem_mentd)[1] <- "mention"
+
+dem_mentd %>%
+  count(mention) %>%
+  mutate(mention = recode(mention, AOC = "Ocasio-Cortez",
+                          Bernie = "Sanders",
+                          Ilhan = "Omar")) %>%
+  ggplot(aes(x = reorder(mention, -n), y = n)) +
+  geom_col(fill = "blue") +
+  theme_minimal() +
+  labs(x = NULL, 
+       y = "Number of Times Mentioned",
+       title = "Democrats Mentioned by Republican Congressmembers on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+rep_direct_men_rep <- grep(pattern = rep_names, rep_twit$text, ignore.case = T)
+rep_direct_men_rep2 <- rep_twit[rep_direct_men_rep,] %>%
+  select(text, screen_name)
+# 793 obs
+
+rep_direct_men_rep2 %>%
+  group_by(screen_name) %>%
+  count() %>%
+  mutate(screen_name = recode(screen_name, LindseyGrahamSC = "Graham",
+                              marcorubio = "Rubio",
+                              MittRomney = "Romney",
+                              RandPaul = "Paul",
+                              tedcruz = "Cruz",
+                              GOPLeader = "McCarthy",
+                              SteveScalise = "Scalise", 
+                              LeaderMcConnell = "McConnell",
+                              SenJohnThune = "Thune", 
+                              DanCrenshawTX = "Crenshaw",
+                              laurenboebert = "Boebert")) %>%
+  ggplot(aes(x = reorder(screen_name, -n), y = n)) +
+  geom_col(fill = "red") +
+  theme_minimal() +
+  coord_flip() +
+  labs(x = NULL, 
+       y = "Number of Mentions",
+       title = "Republican Congressmembers Mentioning Republicans by Name on Twitter",
+       subtitle = "From the 500 Most Recent Tweets of Selected Republican Congressmembers") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+## Future work
+
+There are several directions that future work could take to further the discussion
+and analysis provided here. One major question regards the link between the
+rhetoric observed here and ideology. Moderate Congress members like Mitt Romney
+and Joe Manchin mentioned opponents less than others in their party and used less
+overwhelmingly negative language when mentioning the opposing party. Meanwhile we 
+often observed the least moderate members leading their party in the use of
+negative language. Is this due to less moderate members using more inflammatory
+language, speaking about more inherently negative topics, or a mix of both perhaps?
+Ideology scores could also be used to analyze the inverse- are more moderate
+members spoken about by opposing partisans with more positive language than less
+moderate members? One might expect the Republican mentions of Joe Manchin for
+example to be more positive than mentions of Ocasio-Cortez. Party leaders however 
+might be exempt from this rule, as they represent the whole party more than 
+themselves alone and will likely be discussed negatively regardless.
+
+Meanwhile, Republican surpassing Democrats in more negative language and engaging 
+in mentioning the opposing party more was discussed as potentially being linked 
+to their status as a minority party. While it would be difficult to test this
+assumption with older data due to the only recent mass movement to social media 
+in Congress, a future study when/if the parties' majority/minority positions
+switch could provide interesting insights. Will Republicans' mentions of Democrats
+decrease while Democrats' mentions of Republicans surge? If ideology does indeed
+have an effect on this however, that could also alter the results as the ideological
+compositions of the parties may change in the future and shift their behavior.
+
+Lastly, a comparative approach that analyzes a different medium, perhaps
+Congressional speeches, could shed light on whether the online arena contains 
+more negative language than in-person statements when comparing findings with
+this study. Are any others behaviors more or less pronounced when switching
+between social media posts and in-person speeches? The same approach could be
+taken for interviews, written publications, and even other online forums.
